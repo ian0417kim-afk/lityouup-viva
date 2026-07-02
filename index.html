@@ -687,7 +687,7 @@ Conduct the entire viva in English.`;
 
   // prior-session growth tracking
   let priorBlock="";
-  if(session.sessionNo>=2 && session.prior && session.prior.trim().length>30){
+  if(session.sessionNo>=2 && session.prior && session.prior.trim().length>=5){
     priorBlock=`
 === PREVIOUS-SESSION ANALYSIS (this is session #${session.sessionNo}) ===
 Below is the coach's deep-analysis of this student's PREVIOUS mock viva. Your job this session is GROWTH-CHECK + NEW CHALLENGE: (1) first verify whether the specific weaknesses named below have improved — probe those exact points and see if the student now handles them better; (2) then push into NEW angles so you are not merely repeating last time. Acknowledge visible growth when you see it.
@@ -1003,12 +1003,15 @@ async function endInterview(){
   $('reportContent').innerHTML='<div class="loading-report">'+session.lens.examiner+' is writing the assessment <span class="dots"><i></i><i></i><i></i></span></div>';
   const dur=Math.floor(seconds/60)+"m "+(seconds%60)+"s";
   const T=session.tune;
-  const growthField = session.sessionNo>=2
+  const hasPrior = session.sessionNo>=2 && session.prior && session.prior.trim().length>=5;
+  const growthField = hasPrior
     ? '\n "growth_vs_previous": "<2-4 sentences: compared to the previous session analysis provided, what improved, what stayed the same, what newly emerged>",'
     : '';
-  const growthInstr = session.sessionNo>=2
+  const growthInstr = hasPrior
     ? `This is SESSION #${session.sessionNo}. The previous-session analysis was provided above. In "growth_vs_previous", explicitly compare against it.`
-    : `This is the FIRST session (baseline).`;
+    : (session.sessionNo>=2
+        ? `This is SESSION #${session.sessionNo}, but NO previous-session analysis was provided. Do NOT invent or reference a previous session — assess this session on its own merits only.`
+        : `This is the FIRST session (baseline).`);
   const langInstr = session.lang==='ko_en'
     ? `NOTE: This viva ran in TWO parts — first Korean, then the same questions in English. In your assessment, comment on the gap: did the student understand the ideas (shown in Korean) but struggle to express them in English, or were there comprehension gaps in both? This distinction is important.`
     : '';
