@@ -687,7 +687,7 @@ Conduct the entire viva in English.`;
 
   // prior-session growth tracking
   let priorBlock="";
-  if(session.sessionNo>=2 && session.prior && session.prior.trim().length>30){
+  if(session.sessionNo>=2 && session.prior && session.prior.trim().length>=5){
     priorBlock=`
 === PREVIOUS-SESSION ANALYSIS (this is session #${session.sessionNo}) ===
 Below is the coach's deep-analysis of this student's PREVIOUS mock viva. Your job this session is GROWTH-CHECK + NEW CHALLENGE: (1) first verify whether the specific weaknesses named below have improved — probe those exact points and see if the student now handles them better; (2) then push into NEW angles so you are not merely repeating last time. Acknowledge visible growth when you see it.
@@ -739,7 +739,7 @@ Phase 4 Versatility: ask them to argue against their own conclusion; pose a self
 // =====================================================================
 const PHASES=[{n:1,name:"Warm-up"},{n:2,name:"Sources & Depth"},{n:3,name:"Pressure"},{n:4,name:"Versatility"}];
 let convo=[], phase=1, qCount=0, seconds=0, timerId=null, ended=false, lastQuestion="";
-let recognizing=false, recog=null, sttBase='';
+let recognizing=false, recog=null;
 let koConvo=[], enReplayStarted=false;  // for ko_en language mode
 
 function updateLangBanner(){
@@ -751,33 +751,14 @@ function updateLangBanner(){
     : '<b>Part 2 · English</b> — the same questions, now in English. Try speaking your answers.';
 }
 
-// =====================================================================
-// DEPLOY CONFIG — 배포 설정
-// PROXY_BASE = Cloudflare Worker 주소. 배포 단계에서 실제 주소로 교체.
-//   예) "https://lityouup-viva.<계정>.workers.dev"
-// API 키는 이 파일에 절대 넣지 않는다. 키는 Worker의 Secret에 보관됨.
-// =====================================================================
-const PROXY_BASE = "https://lityouup-viva.ian0417kim.workers.dev";
-
 async function callClaude(system,messages,maxTokens){
-  const res=await fetch(PROXY_BASE+"/api",{
+  const res=await fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:maxTokens||1000,system,messages})
   });
   if(!res.ok) throw new Error("API "+res.status);
   const data=await res.json();
   return (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join(" ").trim();
-}
-
-// 자동 메일 발송 — 면접 종료 시 Worker의 /mail 엔드포인트로 평가+트랜스크립트 POST
-async function sendReportEmail(subject, body){
-  try{
-    const res=await fetch(PROXY_BASE+"/mail",{
-      method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({to:session.email, subject:subject, text:body})
-    });
-    return res.ok;
-  }catch(_){ return false; }
 }
 
 function setPhase(p){
@@ -832,27 +813,15 @@ function setupRecog(){
   if(!SR){$('micLabel').innerHTML='Voice input is not supported here — please <b>type</b>, or use Chrome.';$('micBtn').disabled=true;return;}
   if(recog)return;
   recog=new SR();recog.lang='en-GB';recog.continuous=true;recog.interimResults=true;
-  // Rebuild the whole utterance from all results each event (avoids Android Chrome
-  // duplicating final segments). sttBase = text already in the box before this session.
-  recog.onresult=e=>{
-    let finalText='',interim='';
-    for(let i=0;i<e.results.length;i++){
-      const seg=e.results[i][0].transcript;
-      if(e.results[i].isFinal)finalText+=seg+' ';else interim+=seg;
-    }
-    $('answer').value=(sttBase+finalText+interim).replace(/\s{2,}/g,' ').replace(/^\s+/,'');
-  };
-  recog.onerror=e=>{
-    if(e.error==='no-speech'){$('micLabel').innerHTML='Listening… <b>speak now</b>, or tap to stop.';return;} // keep listening; onend will restart
-    if(e.error==='not-allowed'||e.error==='service-not-allowed'){$('micLabel').innerHTML='Microphone is blocked — allow it in your browser, or just <b>type</b>.';recognizing=false;$('micBtn').classList.remove('rec');return;}
-    $('micLabel').innerHTML='Voice input paused ('+e.error+') — tap the mic to try again, or <b>type</b>.';recognizing=false;$('micBtn').classList.remove('rec');
-  };
-  recog.onend=()=>{if(recognizing){const v=$('answer').value.trim();sttBase=v?v+' ':'';try{recog.start();}catch(_){}}};
+  let finalT='';
+  recog.onresult=e=>{let interim='';for(let i=e.resultIndex;i<e.results.length;i++){const tr=e.results[i][0].transcript;if(e.results[i].isFinal)finalT+=tr+' ';else interim+=tr;}$('answer').value=(finalT+interim).trim();};
+  recog.onerror=e=>{$('micLabel').innerHTML='Mic error: '+e.error+'. You can <b>type</b> instead.';recognizing=false;$('micBtn').classList.remove('rec');};
+  recog.onend=()=>{if(recognizing){try{recog.start();}catch(_){}}};
 }
 $('micBtn').onclick=()=>{
   if(!recog)setupRecog(); if(!recog)return;
   recog.lang = (session.lang==='ko_en' && session.langPhase==='ko') ? 'ko-KR' : 'en-GB';
-  if(!recognizing){recognizing=true;const v=$('answer').value.trim();sttBase=v?v+' ':'';$('micBtn').classList.add('rec');$('micLabel').innerHTML='Listening… tap to <b>stop</b>.';try{recog.start();}catch(_){}}
+  if(!recognizing){recognizing=true;$('micBtn').classList.add('rec');$('micLabel').innerHTML='Listening… tap to <b>stop</b>.';try{recog.start();}catch(_){}}
   else{recognizing=false;$('micBtn').classList.remove('rec');$('micLabel').innerHTML='Tap to <b>start speaking</b>.';recog.stop();}
 };
 
@@ -895,7 +864,7 @@ async function handleSubmit(){
     }
   }catch(e){
     $('thinking').classList.remove('show');
-    $('err').textContent="Couldn't reach the examiner ("+e.message+"). Check your internet connection and try again. (If this persists, the interview server may be misconfigured.)";
+    $('err').textContent="Couldn't reach the examiner ("+e.message+"). This harness must be opened inside claude.ai. Check your connection and try again.";
     $('err').classList.add('show'); convo.pop();convo.pop();
   }
   $('submitBtn').disabled=false;
@@ -1003,12 +972,15 @@ async function endInterview(){
   $('reportContent').innerHTML='<div class="loading-report">'+session.lens.examiner+' is writing the assessment <span class="dots"><i></i><i></i><i></i></span></div>';
   const dur=Math.floor(seconds/60)+"m "+(seconds%60)+"s";
   const T=session.tune;
-  const growthField = session.sessionNo>=2
+  const hasPrior = session.sessionNo>=2 && session.prior && session.prior.trim().length>=5;
+  const growthField = hasPrior
     ? '\n "growth_vs_previous": "<2-4 sentences: compared to the previous session analysis provided, what improved, what stayed the same, what newly emerged>",'
     : '';
-  const growthInstr = session.sessionNo>=2
-    ? `This is SESSION #${session.sessionNo}. The previous-session analysis was provided above. In "growth_vs_previous", explicitly compare against it.`
-    : `This is the FIRST session (baseline).`;
+  const growthInstr = hasPrior
+    ? `This is SESSION #${session.sessionNo}. The previous-session analysis was provided above. In "growth_vs_previous", explicitly compare against it — do NOT invent comparisons beyond what that analysis supports.`
+    : (session.sessionNo>=2
+        ? `This is SESSION #${session.sessionNo}, but no previous-session analysis was provided, so do NOT fabricate a growth comparison; assess this session on its own.`
+        : `This is the FIRST session (baseline).`);
   const langInstr = session.lang==='ko_en'
     ? `NOTE: This viva ran in TWO parts — first Korean, then the same questions in English. In your assessment, comment on the gap: did the student understand the ideas (shown in Korean) but struggle to express them in English, or were there comprehension gaps in both? This distinction is important.`
     : '';
@@ -1073,23 +1045,12 @@ function renderReport(r,dur,tr){
       <button class="btn btn-ghost" id="copyBtn">&#128203; Copy</button>
       <button class="btn btn-ghost" id="againBtn">&#8634; New student</button>
     </div>`;
-  const mailSubject=`John Locke Mock Viva — ${session.name} · ${sessLabel} · ${dur}`;
   $('emailBtn').onclick=()=>{
-    const subj=encodeURIComponent(mailSubject);
+    const subj=encodeURIComponent(`John Locke Mock Viva — ${session.name} · ${sessLabel} · ${dur}`);
     window.location.href=`mailto:${session.email}?subject=${subj}&body=${encodeURIComponent(email)}`;
   };
   $('copyBtn').onclick=()=>navigator.clipboard.writeText(email).then(()=>{$('copyBtn').innerHTML='&#10003; Copied';});
   $('againBtn').onclick=()=>$('restartBtn').click();
-
-  // 자동 메일 발송 (배포판): 리포트가 뜨면 버튼 없이 즉시 마커스 메일로 발송.
-  // 실패 시(프록시 미설정 등) 아래 'Email this report' 버튼이 mailto 백업으로 남음.
-  (async()=>{
-    const btn=$('emailBtn');
-    btn.innerHTML='&#8987; Sending report…';
-    const ok=await sendReportEmail(mailSubject,email);
-    if(ok){ btn.innerHTML='&#10003; Report emailed to '+session.email; }
-    else { btn.innerHTML='&#9993; Email this report'; }
-  })();
 }
 
 function buildEmail(r,dur,tr){
